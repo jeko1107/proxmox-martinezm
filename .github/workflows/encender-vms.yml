@@ -11,9 +11,6 @@ jobs:
   encender:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    permissions:
-      contents: read
-      packages: read
 
     steps:
       - name: Checkout
@@ -38,12 +35,12 @@ jobs:
             --log /tmp/openvpn.log \
             --daemon
           echo "OpenVPN iniciado con sudo..."
-          sleep 30  # Espera conexión
+          sleep 30
 
       - name: Verificar conexión VPN
         run: |
           ip link show type tun || ip link show type tap
-          ping -c 1 ${{ secrets.PROXMOX_IP }} || exit 1
+          ping -c 1 ${{ secrets.PROXMOX_IP }}
 
       - name: Ejecutar script
         run: python start_vms_openvpn.py
