@@ -1,9 +1,11 @@
-name: Encender VMs cada 8 horas
+# .github/workflows/encender-vms.yml
+name: Encender VMs Proxmox (7:00 AM y 3:30 PM)
 
 on:
   schedule:
-    - cron: '0 */8 * * *'  # 00:00, 08:00, 16:00 UTC
-  workflow_dispatch:
+    - cron: '0 5 * * *'   # 7:00 AM España → 5:00 UTC
+    - cron: '30 13 * * *' # 3:30 PM España → 13:30 UTC
+  workflow_dispatch:      # También puedes ejecutarlo manualmente
 
 jobs:
   encender:
@@ -24,7 +26,7 @@ jobs:
           echo "$OPENVPN_CONFIG" > /tmp/instituto.ovpn
           echo "$OPENVPN_AUTH" > /tmp/auth.txt
           echo "$OPENVPN_CACERT" > /tmp/cacert.pem
-          chmod 600 /tmp/*
+          chmod 600 /tmp/instituto.ovpn /tmp/auth.txt /tmp/cacert.pem
         env:
           OPENVPN_CONFIG: ${{ secrets.OPENVPN_CONFIG }}
           OPENVPN_AUTH: ${{ secrets.OPENVPN_AUTH }}
@@ -41,3 +43,7 @@ jobs:
         run: |
           rm -f /tmp/instituto.ovpn /tmp/auth.txt /tmp/cacert.pem
           pkill openvpn || true
+
+      - name: Mostrar hora actual
+        run: |
+          echo "Ej
