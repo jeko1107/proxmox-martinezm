@@ -21,12 +21,12 @@ jobs:
 
       - name: Crear archivos OpenVPN
         run: |
-          echo "$OPENVPN_CONFIG" > /tmp/instituto.ovpn
-          echo "$OPENVPN_AUTH" > /tmp/auth.txt
-          echo "$OPENVPN_CACERT" > /tmp/cacert.pem
-          chmod 600 /tmp/instituto.ovpn /tmp/auth.txt /tmp/cacert.pem
+          echo "$OPENVPN_CONFIG" | sudo tee /tmp/instituto.ovpn > /dev/null
+          echo "$OPENVPN_AUTH" | sudo tee /tmp/auth.txt > /dev/null
+          echo "$OPENVPN_CACERT" | sudo tee /tmp/cacert.pem > /dev/null
+          sudo chmod 600 /tmp/instituto.ovpn /tmp/auth.txt /tmp/cacert.pem
 
-      - name: Conectar OpenVPN (PRIMER PLANO)
+      - name: Conectar OpenVPN (PRIMER PLANO + SUDO)
         run: |
           echo "Iniciando OpenVPN en primer plano..."
           sudo openvpn \
@@ -38,17 +38,18 @@ jobs:
             --connect-timeout 30 \
             --connect-retry-max 1 &
           OPENVPN_PID=$!
-          sleep 25  # Espera conexión
-          if ! kill -0 $OPENVPN_PID 2>/dev/null; then
+          sleep 25
+          if ! sudo kill -0 $OPENVPN_PID 2>/dev/null; then
             echo "OpenVPN falló. Logs:"
-            cat /tmp/openvpn.log
+            sudo cat /tmp/openvpn.log
+            sudo pkill openvpn || true
             exit 1
           fi
           echo "OpenVPN conectado."
 
       - name: Verificar conexión
         run: |
-          ip link show tun0 || ip link show tap0
+          sudo ip link show tun0 || sudo ip link show tap0
           ping -c 2 ${{ secrets.PROXMOX_IP }} || exit 1
 
       - name: Ejecutar script Python
