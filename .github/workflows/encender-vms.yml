@@ -24,7 +24,6 @@ jobs:
           echo "$OPENVPN_CONFIG" > /tmp/instituto.ovpn
           echo "$OPENVPN_AUTH" > /tmp/auth.txt
           echo "$OPENVPN_CACERT" > /tmp/cacert.pem
-          # SOLO TUS ARCHIVOS → SIN ERRORES
           chmod 600 /tmp/instituto.ovpn /tmp/auth.txt /tmp/cacert.pem
         env:
           OPENVPN_CONFIG: ${{ secrets.OPENVPN_CONFIG }}
