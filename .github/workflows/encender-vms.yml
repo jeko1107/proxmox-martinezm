@@ -3,8 +3,8 @@ name: Encender VMs Proxmox (7:00 AM y 3:30 PM España)
 
 on:
   schedule:
-    - cron: '0 5 * * *'
-    - cron: '30 13 * * *'
+    - cron: '0 5 * * *'   # 7:00 AM España
+    - cron: '30 13 * * *' # 3:30 PM España
   workflow_dispatch:
 
 jobs:
@@ -26,23 +26,32 @@ jobs:
           echo "$OPENVPN_CACERT" > /tmp/cacert.pem
           chmod 600 /tmp/instituto.ovpn /tmp/auth.txt /tmp/cacert.pem
 
-      - name: Conectar OpenVPN (con sudo)
+      - name: Conectar OpenVPN (PRIMER PLANO)
         run: |
+          echo "Iniciando OpenVPN en primer plano..."
           sudo openvpn \
             --config /tmp/instituto.ovpn \
             --auth-user-pass /tmp/auth.txt \
             --ca /tmp/cacert.pem \
             --log /tmp/openvpn.log \
-            --daemon
-          echo "OpenVPN iniciado con sudo..."
-          sleep 30
+            --verb 3 \
+            --connect-timeout 30 \
+            --connect-retry-max 1 &
+          OPENVPN_PID=$!
+          sleep 25  # Espera conexión
+          if ! kill -0 $OPENVPN_PID 2>/dev/null; then
+            echo "OpenVPN falló. Logs:"
+            cat /tmp/openvpn.log
+            exit 1
+          fi
+          echo "OpenVPN conectado."
 
-      - name: Verificar conexión VPN
+      - name: Verificar conexión
         run: |
-          ip link show type tun || ip link show type tap
-          ping -c 1 ${{ secrets.PROXMOX_IP }}
+          ip link show tun0 || ip link show tap0
+          ping -c 2 ${{ secrets.PROXMOX_IP }} || exit 1
 
-      - name: Ejecutar script
+      - name: Ejecutar script Python
         run: python start_vms_openvpn.py
         env:
           PROXMOX_IP: ${{ secrets.PROXMOX_IP }}
