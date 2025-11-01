@@ -17,17 +17,16 @@ VMS = {
     "1109": "proxS7",
 }
 
-def start_vm(vmid, node):
+print("Encendiendo VMs en Proxmox...")
+for vmid, node in VMS.items():
     url = f"{API_URL}/nodes/{node}/qemu/{vmid}/status/start"
     headers = {"Authorization": TOKEN}
     try:
         r = requests.post(url, headers=headers, verify=False, timeout=10)
-        print(f"VM {vmid}: {'OK' if r.status_code == 200 else 'Error ' + str(r.status_code)}")
+        status = "ENCENDIDA" if r.status_code == 200 else f"ERROR {r.status_code}"
+        print(f"  VM {vmid} ({node}): {status}")
     except Exception as e:
-        print(f"VM {vmid}: Error de red - {e}")
-
-print("Encendiendo VMs...")
-for vmid, node in VMS.items():
-    start_vm(vmid, node)
+        print(f"  VM {vmid}: ERROR de red - {e}")
     time.sleep(3)
-print("Finalizado")
+
+print("¡Todas las VMs iniciadas!")
