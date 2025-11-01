@@ -25,10 +25,15 @@ jobs:
           echo "$OPENVPN_AUTH" | sudo tee /tmp/auth.txt > /dev/null
           echo "$OPENVPN_CACERT" | sudo tee /tmp/cacert.pem > /dev/null
           sudo chmod 600 /tmp/instituto.ovpn /tmp/auth.txt /tmp/cacert.pem
+          # AÑADIR dev tun SI NO ESTÁ
+          if ! sudo grep -q "^dev " /tmp/instituto.ovpn; then
+            echo "Añadiendo 'dev tun' al config..."
+            echo "dev tun" | sudo tee -a /tmp/instituto.ovpn > /dev/null
+          fi
 
       - name: Conectar OpenVPN (PRIMER PLANO + SUDO)
         run: |
-          echo "Iniciando OpenVPN en primer plano..."
+          echo "Iniciando OpenVPN..."
           sudo openvpn \
             --config /tmp/instituto.ovpn \
             --auth-user-pass /tmp/auth.txt \
@@ -49,10 +54,10 @@ jobs:
 
       - name: Verificar conexión
         run: |
-          sudo ip link show tun0 || sudo ip link show tap0
-          ping -c 2 ${{ secrets.PROXMOX_IP }} || exit 1
+          sudo ip link show tun0
+          ping -c 2 ${{ secrets.PROXMOX_IP }}
 
-      - name: Ejecutar script Python
+      - name: Ejecutar script
         run: python start_vms_openvpn.py
         env:
           PROXMOX_IP: ${{ secrets.PROXMOX_IP }}
