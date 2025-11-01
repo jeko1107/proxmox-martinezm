@@ -2,13 +2,13 @@
 import subprocess
 import time
 import sys
-import requests
 import os
+import requests
 from urllib3.exceptions import InsecureRequestWarning
 
 requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 
-# Secrets inyectados por GitHub
+# === CONFIGURACIÓN ===
 PROXMOX_IP = os.environ["PROXMOX_IP"]
 TOKEN = os.environ["PROXMOX_TOKEN"]
 API_URL = f"https://{PROXMOX_IP}:8006/api2/json"
@@ -22,24 +22,44 @@ VMS = {
 
 def connect_vpn():
     print("Conectando a OpenVPN...")
+
+    # Inicia OpenVPN en segundo plano con logs
     cmd = [
         "openvpn",
         "--config", "/tmp/instituto.ovpn",
         "--auth-user-pass", "/tmp/auth.txt",
         "--ca", "/tmp/cacert.pem",
+        "--log", "/tmp/openvpn.log",  # <-- LOGS
         "--daemon"
     ]
-    subprocess.run(cmd, check=False)
-    time.sleep(20)
 
-    # Verifica con ping
-    for _ in range(3):
-        result = subprocess.run(["ping", "-c", "1", PROXMOX_IP], capture_output=True, timeout=10)
-        if result.returncode == 0:
-            print("VPN conectada")
-            return True
+    try:
+        subprocess.run(cmd, check=False)
+        print("OpenVPN iniciado. Esperando conexión...")
+    except Exception as e:
+        print(f"Error al iniciar OpenVPN: {e}")
+        return False
+
+    # Espera hasta 60 segundos por interfaz TUN/TAP
+    for i in range(12):
         time.sleep(5)
-    print("No se pudo conectar a la VPN")
+        result = subprocess.run(["ip", "link", "show", "type", "tun"], capture_output=True, text=True)
+        if "tun" in result.stdout or "tap" in result.stdout:
+            print("Interfaz VPN detectada (tun/tap)")
+            # Verifica ping
+            ping = subprocess.run(["ping", "-c", "1", PROXMOX_IP], capture_output=True, timeout=5)
+            if ping.returncode == 0:
+                print("VPN conectada y Proxmox accesible")
+                return True
+        print(f"Intento {i+1}/12: VPN no lista aún...")
+
+    print("ERROR: No se pudo conectar a la VPN en 60 segundos")
+    print("Logs de OpenVPN:")
+    try:
+        with open("/tmp/openvpn.log", "r") as f:
+            print(f.read())
+    except:
+        print("No se pudo leer el log")
     return False
 
 def start_vm(vmid, node):
@@ -52,7 +72,7 @@ def start_vm(vmid, node):
         else:
             print(f"Error {r.status_code}: {r.text}")
     except Exception as e:
-        print(f"Error de red: {e}")
+        print(f"Error de red en VM {vmid}: {e}")
 
 def main():
     if not connect_vpn():
@@ -63,9 +83,9 @@ def main():
         start_vm(vmid, node)
         time.sleep(3)
 
-    print("Desconectando...")
+    print("Desconectando OpenVPN...")
     subprocess.run(["pkill", "openvpn"])
-    print("Finalizado")
+    print("Finalizado con éxito")
 
 if __name__ == "__main__":
     main()
