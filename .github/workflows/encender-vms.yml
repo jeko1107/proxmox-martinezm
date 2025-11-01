@@ -3,21 +3,24 @@ name: Encender VMs Proxmox (7:00 AM y 3:30 PM España)
 
 on:
   schedule:
-    - cron: '0 5 * * *'   # 7:00 AM España → 5:00 UTC
-    - cron: '30 13 * * *' # 3:30 PM España → 13:30 UTC
+    - cron: '0 5 * * *'
+    - cron: '30 13 * * *'
   workflow_dispatch:
 
 jobs:
   encender:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: read
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Instalar OpenVPN
-        run: sudo apt update -qq && sudo apt install -y openvpn
+        run: sudo apt update -qq && sudo apt install -y openvpn iproute2
 
       - name: Crear archivos OpenVPN
         run: |
@@ -25,10 +28,22 @@ jobs:
           echo "$OPENVPN_AUTH" > /tmp/auth.txt
           echo "$OPENVPN_CACERT" > /tmp/cacert.pem
           chmod 600 /tmp/instituto.ovpn /tmp/auth.txt /tmp/cacert.pem
-        env:
-          OPENVPN_CONFIG: ${{ secrets.OPENVPN_CONFIG }}
-          OPENVPN_AUTH: ${{ secrets.OPENVPN_AUTH }}
-          OPENVPN_CACERT: ${{ secrets.OPENVPN_CACERT }}
+
+      - name: Conectar OpenVPN (con sudo)
+        run: |
+          sudo openvpn \
+            --config /tmp/instituto.ovpn \
+            --auth-user-pass /tmp/auth.txt \
+            --ca /tmp/cacert.pem \
+            --log /tmp/openvpn.log \
+            --daemon
+          echo "OpenVPN iniciado con sudo..."
+          sleep 30  # Espera conexión
+
+      - name: Verificar conexión VPN
+        run: |
+          ip link show type tun || ip link show type tap
+          ping -c 1 ${{ secrets.PROXMOX_IP }} || exit 1
 
       - name: Ejecutar script
         run: python start_vms_openvpn.py
@@ -39,5 +54,5 @@ jobs:
       - name: Limpiar
         if: always()
         run: |
-          rm -f /tmp/instituto.ovpn /tmp/auth.txt /tmp/cacert.pem
-          pkill openvpn || true
+          sudo pkill openvpn || true
+          sudo rm -f /tmp/instituto.ovpn /tmp/auth.txt /tmp/cacert.pem /tmp/openvpn.log
