@@ -8,7 +8,7 @@ requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 
 PROXMOX_IP = os.environ["PROXMOX_IP"]
 TOKEN = os.environ["PROXMOX_TOKEN"]
-API_URL = f"https://{PROXMOX_IP}:8006/api2/json"
+API_URL = f"https://{PROXMOX_IP}/api2/json"
 
 VMS = {
     "1286": "proxS4",
