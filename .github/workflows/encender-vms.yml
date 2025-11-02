@@ -3,8 +3,8 @@ name: Encender VMs Proxmox (7:00 AM y 3:30 PM España)
 
 on:
   schedule:
-    - cron: '0 5 * * *'   # 7:00 AM España
-    - cron: '30 13 * * *' # 3:30 PM España
+    - cron: '0 5 * * *'
+    - cron: '30 13 * * *'
   workflow_dispatch:
 
 jobs:
@@ -19,20 +19,33 @@ jobs:
       - name: Instalar OpenVPN
         run: sudo apt update -qq && sudo apt install -y openvpn iproute2
 
-      - name: Crear archivos OpenVPN
+      - name: Procesar .ovpn embebido
         run: |
           echo "$OPENVPN_CONFIG" | sudo tee /tmp/instituto.ovpn > /dev/null
-          echo "$OPENVPN_AUTH" | sudo tee /tmp/auth.txt > /dev/null
-          echo "$OPENVPN_CACERT" | sudo tee /tmp/cacert.pem > /dev/null
-          sudo chmod 600 /tmp/instituto.ovpn /tmp/auth.txt /tmp/cacert.pem
 
-          # FORZAR tls-client y dev tun
-          if ! sudo grep -q "^tls-client$" /tmp/instituto.ovpn; then
-            echo "tls-client" | sudo tee -a /tmp/instituto.ovpn > /dev/null
-          fi
-          if ! sudo grep -q "^dev tun$" /tmp/instituto.ovpn; then
-            echo "dev tun" | sudo tee -a /tmp/instituto.ovpn > /dev/null
-          fi
+          # Extraer <ca>, <cert>, <key>, <tls-auth>
+          sudo awk '
+            /^<ca>$/ { in_block = 1; block = "ca"; next }
+            /^<cert>$/ { in_block = 1; block = "cert"; next }
+            /^<key>$/ { in_block = 1; block = "key"; next }
+            /^<tls-auth>$/ { in_block = 1; block = "tlsauth"; next }
+            /^<\/.*>$/ { in_block = 0 }
+            in_block { print > "/tmp/" block ".pem" }
+            !in_block { print > "/tmp/config.ovpn" }
+          ' /tmp/instituto.ovpn
+
+          # Mover archivos
+          [ -f /tmp/ca.pem ] && sudo mv /tmp/ca.pem /tmp/cacert.pem
+          [ -f /tmp/cert.pem ] && sudo mv /tmp/cert.pem /tmp/client.crt
+          [ -f /tmp/key.pem ] && sudo mv /tmp/key.pem /tmp/client.key
+          [ -f /tmp/tlsauth.pem ] && sudo mv /tmp/tlsauth.pem /tmp/ta.key
+
+          # auth.txt
+          echo "$OPENVPN_AUTH" | sudo tee /tmp/auth.txt > /dev/null
+
+          # Config final
+          sudo mv /tmp/config.ovpn /tmp/instituto.ovpn
+          sudo chmod 600 /tmp/instituto.ovpn /tmp/auth.txt /tmp/cacert.pem /tmp/client.crt /tmp/client.key /tmp/ta.key 2>/dev/null || true
 
       - name: Conectar OpenVPN
         run: |
@@ -40,17 +53,14 @@ jobs:
           sudo openvpn \
             --config /tmp/instituto.ovpn \
             --auth-user-pass /tmp/auth.txt \
-            --ca /tmp/cacert.pem \
             --log /tmp/openvpn.log \
-            --verb 3 \
-            --connect-timeout 30 \
-            --connect-retry-max 1 &
+            --verb 4 \
+            --connect-timeout 40 &
           OPENVPN_PID=$!
-          sleep 30
+          sleep 45
           if ! sudo kill -0 $OPENVPN_PID 2>/dev/null; then
             echo "OpenVPN falló. Logs:"
             sudo cat /tmp/openvpn.log
-            sudo pkill openvpn || true
             exit 1
           fi
           echo "OpenVPN conectado."
@@ -70,4 +80,4 @@ jobs:
         if: always()
         run: |
           sudo pkill openvpn || true
-          sudo rm -f /tmp/instituto.ovpn /tmp/auth.txt /tmp/cacert.pem /tmp/openvpn.log
+          sudo rm -f /tmp/instituto.ovpn /tmp/auth.txt /tmp/cacert.pem /tmp/client.crt /tmp/client.key /tmp/ta.key /tmp/openvpn.log
