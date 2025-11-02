@@ -19,12 +19,12 @@ jobs:
       - name: Instalar OpenVPN
         run: sudo apt update -qq && sudo apt install -y openvpn iproute2
 
-      - name: Procesar .ovpn y forzar config
+      - name: Crear config OpenVPN con fuerza
         run: |
-          # Guardar .ovpn
+          # Guardar .ovpn original
           echo "$OPENVPN_CONFIG" | sudo tee /tmp/instituto.ovpn > /dev/null
 
-          # Extraer bloques embebidos
+          # Extraer bloques embebidos (ca, cert, key, tls-auth)
           sudo awk '
             /^<ca>$/ { in_block = 1; block = "cacert.pem"; next }
             /^<cert>$/ { in_block = 1; block = "client.crt"; next }
@@ -35,29 +35,31 @@ jobs:
             !in_block { print > "/tmp/config_clean.ovpn" }
           ' /tmp/instituto.ovpn
 
-          # Usar config limpio
           sudo mv /tmp/config_clean.ovpn /tmp/instituto.ovpn
 
-          # Forzar líneas críticas
-          for line in \
-            "client" \
-            "tls-client" \
-            "dev tun" \
-            "proto udp" \
-            "resolv-retry infinite" \
-            "nobind" \
-            "persist-key" \
-            "persist-tun" \
-            "auth-user-pass" \
-            "verb 3"; do
-            if ! sudo grep -q "^$line$" /tmp/instituto.ovpn; then
-              echo "$line" | sudo tee -a /tmp/instituto.ovpn > /dev/null
-            fi
-          done
+          # FORZAR CONFIGURACIÓN MÍNIMA
+          cat | sudo tee /tmp/instituto.ovpn > /dev/null << 'EOF'
+client
+tls-client
+dev tun
+proto udp
+remote proxmox.iesmartinezm.es 1194
+remote 192.168.1.100 1194
+resolv-retry infinite
+persist-key
+persist-tun
+auth-user-pass
+verb 3
+data-ciphers AES-256-GCM:AES-128-GCM:BF-CBC
+data-ciphers-fallback BF-CBC
+EOF
+
+          # Añadir ca embebido si existe
+          [ -f /tmp/cacert.pem ] && sudo sed -i '/^ca /d' /tmp/instituto.ovpn && echo "ca /tmp/cacert.pem" | sudo tee -a /tmp/instituto.ovpn > /dev/null
 
           # auth.txt
           echo "$OPENVPN_AUTH" | sudo tee /tmp/auth.txt > /dev/null
-          sudo chmod 600 /tmp/instituto.ovpn /tmp/auth.txt
+          sudo chmod 600 /tmp/instituto.ovpn /tmp/auth.txt /tmp/cacert.pem 2>/dev/null || true
 
       - name: Conectar OpenVPN
         run: |
@@ -69,7 +71,7 @@ jobs:
             --verb 4 \
             --connect-timeout 40 &
           OPENVPN_PID=$!
-          sleep 45
+          sleep 50
           if ! sudo kill -0 $OPENVPN_PID 2>/dev/null; then
             echo "OpenVPN falló. Logs:"
             sudo cat /tmp/openvpn.log
@@ -79,9 +81,8 @@ jobs:
 
       - name: Verificar conexión
         run: |
-          sudo ip link show tun0 || echo "No tun0, intentando tap0..."
-          sudo ip link show tap0 || true
-          ping -c 2 ${{ secrets.PROXMOX_IP }} || exit 1
+          sudo ip link show tun0
+          ping -c 2 ${{ secrets.PROXMOX_IP }}
 
       - name: Ejecutar script
         run: python start_vms_openvpn.py
@@ -93,4 +94,4 @@ jobs:
         if: always()
         run: |
           sudo pkill openvpn || true
-          sudo rm -f /tmp/instituto.ovpn /tmp/auth.txt /tmp/*.pem /tmp/*.key /tmp/*.crt /tmp/openvpn.log
+          sudo rm -f /tmp/instituto.ovpn /tmp/auth.txt /tmp/cacert.pem /tmp/openvpn.log
