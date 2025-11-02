@@ -3,8 +3,8 @@ name: Encender VMs Proxmox (7:00 AM y 3:30 PM España)
 
 on:
   schedule:
-    - cron: '0 5 * * *'
-    - cron: '30 13 * * *'
+    - cron: '0 5 * * *'   # 7:00 AM España
+    - cron: '30 13 * * *' # 3:30 PM España
   workflow_dispatch:
 
 jobs:
@@ -19,33 +19,45 @@ jobs:
       - name: Instalar OpenVPN
         run: sudo apt update -qq && sudo apt install -y openvpn iproute2
 
-      - name: Procesar .ovpn embebido
+      - name: Procesar .ovpn y forzar config
         run: |
+          # Guardar .ovpn
           echo "$OPENVPN_CONFIG" | sudo tee /tmp/instituto.ovpn > /dev/null
 
-          # Extraer <ca>, <cert>, <key>, <tls-auth>
+          # Extraer bloques embebidos
           sudo awk '
-            /^<ca>$/ { in_block = 1; block = "ca"; next }
-            /^<cert>$/ { in_block = 1; block = "cert"; next }
-            /^<key>$/ { in_block = 1; block = "key"; next }
-            /^<tls-auth>$/ { in_block = 1; block = "tlsauth"; next }
+            /^<ca>$/ { in_block = 1; block = "cacert.pem"; next }
+            /^<cert>$/ { in_block = 1; block = "client.crt"; next }
+            /^<key>$/ { in_block = 1; block = "client.key"; next }
+            /^<tls-auth>$/ { in_block = 1; block = "ta.key"; next }
             /^<\/.*>$/ { in_block = 0 }
-            in_block { print > "/tmp/" block ".pem" }
-            !in_block { print > "/tmp/config.ovpn" }
+            in_block { print > "/tmp/" block }
+            !in_block { print > "/tmp/config_clean.ovpn" }
           ' /tmp/instituto.ovpn
 
-          # Mover archivos
-          [ -f /tmp/ca.pem ] && sudo mv /tmp/ca.pem /tmp/cacert.pem
-          [ -f /tmp/cert.pem ] && sudo mv /tmp/cert.pem /tmp/client.crt
-          [ -f /tmp/key.pem ] && sudo mv /tmp/key.pem /tmp/client.key
-          [ -f /tmp/tlsauth.pem ] && sudo mv /tmp/tlsauth.pem /tmp/ta.key
+          # Usar config limpio
+          sudo mv /tmp/config_clean.ovpn /tmp/instituto.ovpn
+
+          # Forzar líneas críticas
+          for line in \
+            "client" \
+            "tls-client" \
+            "dev tun" \
+            "proto udp" \
+            "resolv-retry infinite" \
+            "nobind" \
+            "persist-key" \
+            "persist-tun" \
+            "auth-user-pass" \
+            "verb 3"; do
+            if ! sudo grep -q "^$line$" /tmp/instituto.ovpn; then
+              echo "$line" | sudo tee -a /tmp/instituto.ovpn > /dev/null
+            fi
+          done
 
           # auth.txt
           echo "$OPENVPN_AUTH" | sudo tee /tmp/auth.txt > /dev/null
-
-          # Config final
-          sudo mv /tmp/config.ovpn /tmp/instituto.ovpn
-          sudo chmod 600 /tmp/instituto.ovpn /tmp/auth.txt /tmp/cacert.pem /tmp/client.crt /tmp/client.key /tmp/ta.key 2>/dev/null || true
+          sudo chmod 600 /tmp/instituto.ovpn /tmp/auth.txt
 
       - name: Conectar OpenVPN
         run: |
@@ -67,8 +79,9 @@ jobs:
 
       - name: Verificar conexión
         run: |
-          sudo ip link show tun0
-          ping -c 2 ${{ secrets.PROXMOX_IP }}
+          sudo ip link show tun0 || echo "No tun0, intentando tap0..."
+          sudo ip link show tap0 || true
+          ping -c 2 ${{ secrets.PROXMOX_IP }} || exit 1
 
       - name: Ejecutar script
         run: python start_vms_openvpn.py
@@ -80,4 +93,4 @@ jobs:
         if: always()
         run: |
           sudo pkill openvpn || true
-          sudo rm -f /tmp/instituto.ovpn /tmp/auth.txt /tmp/cacert.pem /tmp/client.crt /tmp/client.key /tmp/ta.key /tmp/openvpn.log
+          sudo rm -f /tmp/instituto.ovpn /tmp/auth.txt /tmp/*.pem /tmp/*.key /tmp/*.crt /tmp/openvpn.log
